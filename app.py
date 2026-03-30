@@ -365,157 +365,140 @@ def pagina_login():
 
 # --- Cadastro de Alunos ---
 def pagina_cadastro():
-    st.markdown("## ✏️ Cadastro de Alunos")
+    st.title("📋 Cadastro de Alunos")
 
-    # --- Lista de alunos cadastrados ---
-    alunos = list(db.alunos.find().sort("nome", 1))
+    # ================= FORMULÁRIO =================
+    with st.form("form_aluno"):
+        cgm = st.text_input("CGM")
+        nome = st.text_input("Nome")
+        data = st.text_input("Data de Nascimento")
+        telefone = st.text_input("Telefone")
+        turma = st.text_input("Turma")
+        responsavel = st.text_input("Responsável")
 
-    nomes_exibicao = [""] + [
-        f"{a['nome']} (CGM: {a['cgm']})"
-        for a in alunos
-    ]
+        col1, col2 = st.columns(2)
+        salvar = col1.form_submit_button("💾 Salvar")
+        limpar = col2.form_submit_button("🧹 Limpar")
 
-    selecionado = st.selectbox("🔎 Buscar aluno para Alterar ou Excluir:", nomes_exibicao)
-
-    aluno_carregado = None
-    if selecionado and selecionado != "":
-        # Extrai CGM do texto selecionado
-        cgm_busca = selecionado.split("CGM:")[1].replace(")", "").strip()
-        aluno_carregado = db.alunos.find_one({"cgm": cgm_busca})
-
-        st.success(f"Aluno carregado: {aluno_carregado['nome']} (CGM {aluno_carregado['cgm']})")
-
-    # --- Formulário de Cadastro ou Alteração ---
-    with st.form("form_cadastro"):
-
-        cgm = st.text_input("CGM", value=aluno_carregado["cgm"] if aluno_carregado else "")
-        nome = st.text_input("Nome", value=aluno_carregado["nome"] if aluno_carregado else "")
-        data = st.date_input(
-        "Data de Nascimento",
-            value=data_segura(aluno_carregado.get("data") if aluno_carregado else None)
-    )
-        telefone = st.text_input("Telefone", value=aluno_carregado["telefone"] if aluno_carregado else "")
-        responsavel = st.text_input("Responsável", value=aluno_carregado["responsavel"] if aluno_carregado else "")
-        turma = st.text_input("Turma", value=aluno_carregado["turma"] if aluno_carregado else "")
-
-        col1, col2, col3 = st.columns([1,1,1])
-        salvar = col1.form_submit_button("💾 Salvar / Alterar")
-        excluir = col2.form_submit_button("🗑️ Excluir")
-        limpar = col3.form_submit_button("🧹 Limpar")
-
-    # --- Ações após clique ---
+    # ================= SALVAR =================
     if salvar:
-        if cgm and nome:
-            db.alunos.update_one({"cgm": cgm}, {
-                "$set": {
-                    "cgm": cgm,
-                    "nome": nome,
-                    "data": str(data),
-                    "telefone": telefone,
-                    "responsavel": responsavel,
-                    "turma": turma
-                }
-            }, upsert=True)
-            st.success("✅ Aluno salvo ou atualizado com sucesso!")
-            st.experimental_rerun()
+        if not nome or not turma:
+            st.warning("⚠️ Nome e Turma são obrigatórios")
         else:
-            st.error("Preencha todos os campos obrigatórios.")
+            aluno = {
+                "cgm": cgm.strip() if cgm else "",
+                "nome": nome.strip(),
+                "data": data.strip(),
+                "telefone": telefone.strip(),
+                "turma": turma.strip(),
+                "responsavel": responsavel.strip()
+            }
 
-    if excluir and aluno_carregado:
-        confirmacao = st.warning(f"Tem certeza que deseja excluir o aluno {aluno_carregado['nome']} (CGM {aluno_carregado['cgm']})?")
-        if st.button("✅ Confirmar Exclusão"):
-            db.alunos.delete_one({"cgm": aluno_carregado["cgm"]})
-            st.success("✅ Aluno excluído com sucesso!")
-            st.experimental_rerun()
+            db.alunos.update_one(
+                {"cgm": aluno["cgm"]},
+                {"$set": aluno},
+                upsert=True
+            )
 
+            st.success("✅ Aluno salvo com sucesso!")
+
+    # ================= LIMPAR =================
     if limpar:
         st.experimental_rerun()
 
-    # --- Importação de alunos via arquivo ---
-st.subheader("📥 Importar Alunos via TXT ou CSV")
+    # ================= IMPORTAÇÃO =================
+    st.markdown("---")
+    st.subheader("📥 Importar Alunos via TXT ou CSV")
 
-arquivo = st.file_uploader("Escolha o arquivo .txt ou .csv", type=["txt", "csv"])
-delimitador = st.selectbox("Escolha o delimitador", [";", ",", "\\t"])
-delimitador_real = {";": ";", ",": ",", "\\t": "\t"}[delimitador]
+    arquivo = st.file_uploader(
+        "Escolha o arquivo .txt ou .csv",
+        type=["txt", "csv"],
+        key="upload_txt"
+    )
 
-if arquivo is not None:
-    try:
-        conteudo = arquivo.read().decode("utf-8", errors="ignore")
-        linhas = conteudo.split("\n")
+    delimitador = st.selectbox(
+        "Escolha o delimitador",
+        [";", ",", "\\t"],
+        key="delimitador"
+    )
 
-        # 🔍 Prévia do arquivo
-        st.write("### 🔍 Pré-visualização (primeiras linhas)")
-        st.text("\n".join(linhas[:10]))
+    delimitador_real = {
+        ";": ";",
+        ",": ",",
+        "\\t": "\t"
+    }[delimitador]
 
-        if st.button("Importar para o Sistema"):
-            import uuid
+    if arquivo is not None:
+        try:
+            conteudo = arquivo.read().decode("utf-8", errors="ignore")
+            linhas = conteudo.split("\n")
 
-            total_importados = 0
-            ignorados = 0
-            erros = []
+            st.write("### 🔍 Pré-visualização")
+            st.text("\n".join(linhas[:10]))
 
-            for linha in linhas:
-                linha = linha.strip()
+            if st.button("🚀 Importar agora", key="btn_importar"):
+                import uuid
 
-                # ignora linha vazia
-                if not linha:
-                    continue
+                total_importados = 0
+                ignorados = 0
+                erros = []
 
-                partes = linha.split(delimitador_real)
+                for linha in linhas:
+                    linha = linha.strip()
 
-                try:
-                    # ✅ COM CGM (5 colunas)
-                    if len(partes) == 5:
-                        cgm, nome, data, telefone, turma = partes
-
-                    # ✅ SEM CGM (4 colunas)
-                    elif len(partes) == 4:
-                        nome, data, telefone, turma = partes
-                        cgm = str(uuid.uuid4())[:10]
-
-                    # ❌ linha inválida
-                    else:
-                        ignorados += 1
+                    if not linha:
                         continue
 
-                    aluno = {
-                        "cgm": str(cgm).strip(),
-                        "nome": nome.strip(),
-                        "data": data.strip(),
-                        "telefone": telefone.strip(),
-                        "turma": turma.strip(),
-                        "responsavel": ""
-                    }
+                    partes = linha.split(delimitador_real)
 
-                    # validação mínima
-                    if not aluno["nome"] or not aluno["turma"]:
-                        ignorados += 1
-                        continue
+                    try:
+                        # COM CGM
+                        if len(partes) == 5:
+                            cgm, nome, data, telefone, turma = partes
 
-                    # salva no MongoDB
-                    db.alunos.update_one(
-                        {"cgm": aluno["cgm"]},
-                        {"$set": aluno},
-                        upsert=True
-                    )
+                        # SEM CGM
+                        elif len(partes) == 4:
+                            nome, data, telefone, turma = partes
+                            cgm = str(uuid.uuid4())[:10]
 
-                    total_importados += 1
+                        else:
+                            ignorados += 1
+                            continue
 
-                except Exception as e:
-                    erros.append(f"Linha: {linha} → {e}")
+                        aluno = {
+                            "cgm": str(cgm).strip(),
+                            "nome": nome.strip(),
+                            "data": data.strip(),
+                            "telefone": telefone.strip(),
+                            "turma": turma.strip(),
+                            "responsavel": ""
+                        }
 
-            # ✅ RESULTADOS
-            st.success(f"✅ Importados: {total_importados}")
-            st.warning(f"⚠️ Ignorados: {ignorados}")
+                        if not aluno["nome"] or not aluno["turma"]:
+                            ignorados += 1
+                            continue
 
-            if erros:
-                st.error("❌ Erros encontrados:")
-                for erro in erros[:20]:  # limita exibição
-                    st.error(erro)
+                        db.alunos.update_one(
+                            {"cgm": aluno["cgm"]},
+                            {"$set": aluno},
+                            upsert=True
+                        )
 
-    except Exception as e:
-        st.error(f"Erro ao ler o arquivo: {e}")
+                        total_importados += 1
 
+                    except Exception as e:
+                        erros.append(f"Linha: {linha} → {e}")
+
+                st.success(f"✅ Importados: {total_importados}")
+                st.warning(f"⚠️ Ignorados: {ignorados}")
+
+                if erros:
+                    st.error("❌ Erros encontrados:")
+                    for erro in erros[:20]:
+                        st.error(erro)
+
+        except Exception as e:
+            st.error(f"Erro ao ler arquivo: {e}")
 def pagina_ocorrencias():
     st.markdown("## 🚨 Registro de Ocorrência")
 
