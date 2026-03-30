@@ -432,56 +432,89 @@ def pagina_cadastro():
         st.experimental_rerun()
 
     # --- Importação de alunos via arquivo ---
-    st.subheader("📥 Importar Alunos via TXT ou CSV")
-    arquivo = st.file_uploader("Escolha o arquivo .txt ou .csv", type=["txt", "csv"])
-    delimitador = st.selectbox("Escolha o delimitador", [";", ",", "\\t"])
-    delimitador_real = {";": ";", ",": ",", "\\t": "\t"}[delimitador]
+st.subheader("📥 Importar Alunos via TXT ou CSV")
 
-    if arquivo is not None:
-        try:
-            df_import = pd.read_csv(arquivo, delimiter=delimitador_real)
-            df_import.columns = [col.strip().lower() for col in df_import.columns]
-            st.dataframe(df_import)
+arquivo = st.file_uploader("Escolha o arquivo .txt ou .csv", type=["txt", "csv"])
+delimitador = st.selectbox("Escolha o delimitador", [";", ",", "\\t"])
+delimitador_real = {";": ";", ",": ",", "\\t": "\t"}[delimitador]
 
-            if st.button("Importar para o Sistema"):
-                erros = []
-                total_importados = 0
-                for _, row in df_import.iterrows():
-                    try:
-                        cgm = str(row.get('cgm', '')).strip()
-                        nome = str(row.get('nome', '')).strip()
-                        data = str(row.get('data', '')).strip()
-                        telefone = str(row.get('telefone', '')).strip()
-                        turma = str(row.get('turma', '')).strip()
-                        responsavel = str(row.get('responsavel', '')).strip()
-                        
-                        if not cgm or not nome:
-                            erros.append(f"CGM ou Nome ausente na linha: {row.to_dict()}")
-                            continue
+if arquivo is not None:
+    try:
+        conteudo = arquivo.read().decode("utf-8", errors="ignore")
+        linhas = conteudo.split("\n")
 
-                        aluno = {
-                            "cgm": cgm,
-                            "nome": nome,
-                            "data": data,
-                            "telefone": telefone,
-                            "turma": turma,
-                            "responsavel": responsavel                            
-                        }
+        # 🔍 Prévia do arquivo
+        st.write("### 🔍 Pré-visualização (primeiras linhas)")
+        st.text("\n".join(linhas[:10]))
 
-                        db.alunos.update_one({"cgm": cgm}, {"$set": aluno}, upsert=True)
-                        total_importados += 1
+        if st.button("Importar para o Sistema"):
+            import uuid
 
-                    except Exception as e:
-                        erros.append(f"Erro na linha {row.to_dict()} → {e}")
+            total_importados = 0
+            ignorados = 0
+            erros = []
 
-                st.success(f"✅ Importação finalizada. Total importado/atualizado: {total_importados}")
-                if erros:
-                    st.warning("⚠️ Erros encontrados:")
-                    for erro in erros:
-                        st.error(erro)
+            for linha in linhas:
+                linha = linha.strip()
 
-        except Exception as e:
-            st.error(f"Erro ao ler o arquivo: {e}")
+                # ignora linha vazia
+                if not linha:
+                    continue
+
+                partes = linha.split(delimitador_real)
+
+                try:
+                    # ✅ COM CGM (5 colunas)
+                    if len(partes) == 5:
+                        cgm, nome, data, telefone, turma = partes
+
+                    # ✅ SEM CGM (4 colunas)
+                    elif len(partes) == 4:
+                        nome, data, telefone, turma = partes
+                        cgm = str(uuid.uuid4())[:10]
+
+                    # ❌ linha inválida
+                    else:
+                        ignorados += 1
+                        continue
+
+                    aluno = {
+                        "cgm": str(cgm).strip(),
+                        "nome": nome.strip(),
+                        "data": data.strip(),
+                        "telefone": telefone.strip(),
+                        "turma": turma.strip(),
+                        "responsavel": ""
+                    }
+
+                    # validação mínima
+                    if not aluno["nome"] or not aluno["turma"]:
+                        ignorados += 1
+                        continue
+
+                    # salva no MongoDB
+                    db.alunos.update_one(
+                        {"cgm": aluno["cgm"]},
+                        {"$set": aluno},
+                        upsert=True
+                    )
+
+                    total_importados += 1
+
+                except Exception as e:
+                    erros.append(f"Linha: {linha} → {e}")
+
+            # ✅ RESULTADOS
+            st.success(f"✅ Importados: {total_importados}")
+            st.warning(f"⚠️ Ignorados: {ignorados}")
+
+            if erros:
+                st.error("❌ Erros encontrados:")
+                for erro in erros[:20]:  # limita exibição
+                    st.error(erro)
+
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo: {e}")
 
 def pagina_ocorrencias():
     st.markdown("## 🚨 Registro de Ocorrência")
